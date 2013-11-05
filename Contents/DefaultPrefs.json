@@ -1,0 +1,42 @@
+[
+    {
+        "id": "username",
+        "type": "text",
+        "label": "OpenSubtitles Username",
+        "default": ""
+    },
+    {
+        "id": "password",
+        "type": "text",
+        "label": "OpenSubtitles Password",
+        "default": "",
+        "option": "hidden"
+    },    
+    {
+        "id": "language",
+        "type": "enum",
+        "label": "OpenSubtitle Language",
+        "values": ["eng","alb","ara","arm","bos","bul","cat","chi","hrv","cze","dan","dut","epo","est","fas","fin","fre","lgl","geo","ger","gre","heb",
+                   "hin","hun","ice","ind","ita","jpn","kaz","kor","lat","lit","ltz","mac","may","nor","oci","pol","por","pob","rum","rus","srp","slo",
+                   "slv","spa","swe","syr","tha","tur","ukr","urd","vie"],
+        "default": "eng"
+    },
+    {
+        "id": "FFMPEG_PATH",
+        "type": "text",
+        "label": "Path to FFMPEG.exe",
+        "default": ""
+    },
+    {
+        "id": "FFPROBE_PATH",
+        "type": "text",
+        "label": "Path to FFPROBE.exe",
+        "default": ""
+    },
+    {
+        "id": "delete",
+        "type": "bool",
+        "label": "Delete Original File",
+        "default": "false"
+    },
+]
