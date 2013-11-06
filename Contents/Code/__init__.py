@@ -15,7 +15,7 @@ ICON = 'icon-default.png'
 ICON_PREFS = 'icon-prefs.png'
 HOST = 'http://localhost:32400'
 SECTIONS = '%s/library/sections/'
-SECTION = '%s/library/sections/%s/folder/'
+SECTION = '%s/library/sections/%s/all/'
 
 SETTINGS = {
     'opensubtitles_server'  : 'http://plexapp.api.opensubtitles.org/xml-rpc',
@@ -59,32 +59,22 @@ class LogManager(object):
         for handler in self.logger.handlers:
             handler.flush()
             
-    def getCurrentProgress(self):
+    def getLatest(self):
         if len(self.progress) == 0:
             return ''
         return self.progress[-1]
         
     def reset(self):
         self.progress[:] = []
-        
-class Core():
-    def __init__(self):
-        self.lm = LogManager(logging.DEBUG)
-        sys.stdout = self.lm    
-    
-    def getLatest(self):
-        return self.lm.getCurrentProgress()
-        
-    def reset(self):
-        self.lm.reset()
     
     def isActive(self):
-        if len(self.lm.progress) == 0:
+        if len(self.progress) == 0:
             return False
         else:
             return True
-        
-core = Core()
+      
+lm = LogManager(logging.DEBUG)
+sys.stdout = lm 
         
 ###############################################
 def Start():
@@ -100,7 +90,14 @@ def MainMenu():
     
     directories = XML.ElementFromURL(SECTIONS % (HOST), cacheTime=0).xpath('//Directory')
     for directory in directories:
-        oc.add(DirectoryObject(key = Callback(ShowSubMenu, url=SECTION % (HOST, directory.get('key')), type=directory.get('type')), title = directory.get('title')))
+        oc.add(
+            DirectoryObject(
+                key = Callback(ShowSubMenu, url=SECTION % (HOST, directory.get('key')), type=directory.get('type')), 
+                title = directory.get('title'), 
+                thumb = directory.get('thumb'), 
+                art = directory.get('art')
+            )
+        )
     
     oc.add(PrefsObject(title = 'Preferences', thumb = R(ICON_PREFS)))
     oc.add(DirectoryObject(key = Callback(GetConversions), title = 'MP4 conversions in progress'))
@@ -113,13 +110,15 @@ def ShowSubMenu(url, type=None):
     elements = XML.ElementFromURL(url, cacheTime=0).xpath('/*/*')
     for element in elements:
         key = element.get('key')
+        art = element.get('art')
+        thumb = element.get('thumb')        
         if type == 'show':
-            if '/library/metadata' not in key:
-                oc.add(DirectoryObject(key = Callback(ShowSubMenu, url=HOST+key, type=type), title = element.get('title')))
+            if '/children' in key:
+                oc.add(DirectoryObject(key = Callback(ShowSubMenu, url=HOST+key, type=type), title = element.get('title'), thumb = thumb, art = art))
             else:
-                oc.add(DirectoryObject(key = Callback(ShowTaskMenu, key=key, type=type), title = element.get('title')))
+                oc.add(DirectoryObject(key = Callback(ShowTaskMenu, key=key, type=type), title = element.get('title'), thumb = thumb, art = art))
         else:
-            oc.add(DirectoryObject(key = Callback(ShowTaskMenu, key=key, type=type), title = element.get('title')))
+            oc.add(DirectoryObject(key = Callback(ShowTaskMenu, key=key, type=type), title = element.get('title'), thumb = thumb, art = art))
 
     return oc
 
@@ -203,8 +202,8 @@ def WriteSubtitle(url, root, filename):
 @route('/video/plextools/getconversions')
 def GetConversions():
     oc = ObjectContainer()
-    if core.isActive():
-        oc.add(DirectoryObject(key = Callback(GetConversions), title = str(core.getLatest()) + ' - Click to refresh'))
+    if lm.isActive():
+        oc.add(DirectoryObject(key = Callback(GetConversions), title = str(lm.getLatest()) + ' - Click to refresh'))
     else:
         oc.add(DirectoryObject(key = Callback(GetConversions), title = 'No active conversions'))    
     return oc
@@ -226,4 +225,4 @@ def convert(file):
     output = converter.process(file, True)
     converter.QTFS(output['output'])
     print 'Conversion of ' + file + ' completed'
-    core.reset()
+    lm.reset()
