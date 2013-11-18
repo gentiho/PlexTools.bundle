@@ -10,7 +10,7 @@ Installation Instructions
 1.  Install FFMPEG and FFPROBE from http://www.ffmpeg.org/
 2.  Copy PlexTools.bundle to your plugin directory
     * Mac: ~/Library/Application Support/Plex Media Server/Plug-ins
-    * Windows: C:\Users\[user]\AppData\Local\Plex Media Server\Plug-ins
+    * Windows: C:\Users\\[user]\AppData\Local\Plex Media Server\Plug-ins
 3.  Make sure to update the plugins settings
     * `OpenSubtitles Username`: OpenSubtitles account name (required)
     * `OpenSubtitles Password`: Password for OpenSubtitles account (required)
