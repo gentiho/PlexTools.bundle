@@ -4,7 +4,7 @@
 ###############################################
 import os
 import sys
-import logging
+import logging, re
 from opensubtitles import OpenSubtitles
 from mkvtomp4 import MkvtoMp4
 
@@ -155,7 +155,7 @@ def ShowSubMenu(key, type=None):
                 oc.add(DirectoryObject(key = Callback(ShowTaskMenu, key=nkey, type=type), title = element.get('title'), thumb = thumb, art = art))
         else:
             oc.add(DirectoryObject(key = Callback(ShowTaskMenu, key=nkey, type=type), title = element.get('title'), thumb = thumb, art = art))
-    try: oc.add(DirectoryObject(key = Callback(ShowTaskMenu, key=key, type=type), title = 'Convert All Items', thumb = R(ICON)))
+    try: oc.add(DirectoryObject(key = Callback(ShowTaskMenu, key=key, type=type), title = 'Select All Items', thumb = R(ICON)))
     except: Log.Exception('There was an error adding All Items [%s]', e.message)
     return oc
 
@@ -165,10 +165,22 @@ def ShowTaskMenu(key, type):
     xml = XML.ElementFromURL(HOST + key)
     #Log.Debug(XML.StringFromElement(xml))
     files = xml.xpath('//Media/Part/@file')
+    movies = None
+    if type=='movie' and Prefs['enable_rename']:
+        movies = xml.xpath('//Video')
+        if len(movies) == 0: movies = None
     oc = ObjectContainer(title2='Tasks', no_history=True, no_cache=True)
-    #oc.add(DirectoryObject(key = Callback(DownloadSubtitles, key=key, type=type), title = 'Download %s %s' % (len(files),'Subtitle' if len(files)==1 else String.Pluralize('Subtitle'))))  #commented out since right now we only get 1 subtitle
-    if files and len(files) == 1:
+    if files and (len(files) == 1):
         oc.add(DirectoryObject(key = Callback(DownloadSubtitles, key=key, type=type), title = 'Download Subtitles'))
+    if movies:
+        if len(movies) == 1:
+            try:
+                (basepath, oldFolderName, newFolderName) = getNewVideoFolderName(movies[0])
+                if newFolderName <> None:
+                    oc.add(DirectoryObject(key = Callback(RenameFolders, key=key, type=type), title = 'Rename Folder to "' + newFolderName + '"'))
+            except: pass
+        else:
+            oc.add(DirectoryObject(key = Callback(RenameFolders, key=key, type=type), title = 'Rename All %s Movie Folders' % len(movies)))
     if files and (len(files) > 0):
         if len(files) > 1:
             oc.add(DirectoryObject(key = Callback(ConvertToMP4, files=files), title = 'Convert All %s Videos to MP4' % len(files)))
@@ -211,13 +223,36 @@ def DownloadSubtitles(key, type):
             oc.add(DirectoryObject(key = Callback(WriteSubtitle, url=item['SubDownloadLink'], root=root, filename=filename), title = item['MovieReleaseName'] + ' (' + item['SubDownloadsCnt'] + ' downloads)'))
     return oc
 
+@route('/video/plextools/renamefolders')
+def RenameFolders(key, type):
+    global plexToolsThread
+    if lm.isActive():
+        Log.Info('Rename not started - thread already running')
+        return MessageContainer('Cannot rename folder', 'Cannot run yet.  Conversion or Renaming is already in progress')
+    xml = XML.ElementFromURL(HOST + key)
+    #Log.Debug(XML.StringFromElement(xml))
+    movies = xml.xpath('//Video')
+    if movies and (len(movies) > 0):
+        Log.Debug('Renaming %s movies(s) folders', str(len(movies)))
+        try:            
+            plexToolsThread = Thread.Create(renamemovies, movies=movies)
+            message = 'Renaming of Folders has started'
+        except Exception, e:
+            Log.Exception('There was an error renaming folders [%s]', e.message)
+            message = 'There was an error renaming folders'
+    else:
+        Log.Warn('Rename Folders did not find any movies to rename')
+        message = 'Unable to find any folders to rename'
+    return(MessageContainer('Rename Folders', message))
+
+
 ###############################################
 @route('/video/plextools/converttomp4', files=list)
 def ConvertToMP4(files):
     global plexToolsThread
     if lm.isActive():
-        Log.Info('Conversion not started - one already running')
-        return MessageContainer('Cannot convert', 'Conversion already in progress')
+        Log.Info('Conversion not started - thread already running')
+        return MessageContainer('Cannot convert', 'Cannot run yet.  Conversion or Renaming is already in progress')
     message = ''
     if type(files) is str:
         files = [files]
@@ -226,9 +261,9 @@ def ConvertToMP4(files):
         try:            
             plexToolsThread = Thread.Create(convert, files=files)
             #Debug.Log(type(t))
-            message = 'Converting to MP4 has begun'
+            message = 'Converting to MP4 has started'
         except Exception, e:
-            Log.Exception(e)
+            Log.Exception('There was an error converting to mp4 [%s]', e.message)
             message = 'There was an error converting to MP4'
     else:
         message = 'There was an error converting a file'
@@ -253,7 +288,7 @@ def WriteSubtitle(url, root, filename):
             message = 'Could not find a matching subtitle'
 
     except Exception, e:
-        Log.Exception(e)
+        Log.Exception('There was an error writing subtitle[%s]', e.message)
         message = 'There was an error saving the subtitle'
 
     return MessageContainer('Download Subtitles', message)
@@ -263,8 +298,9 @@ def WriteSubtitle(url, root, filename):
 def GetConversions(junk):
     oc = ObjectContainer(no_cache=True, no_history=True)
     if lm.isActive():
-        oc.add(DirectoryObject(key = Callback(GetConversions, junk=str(Util.Random())), title = str(lm.getStatus()) + ' - [Click to refresh]'))
-        oc.add(DirectoryObject(key = Callback(GetConversions, junk=str(Util.Random())), title = str(lm.getLatest()) + ' - [Click to refresh]'))
+        oc.add(DirectoryObject(key = Callback(GetConversions, junk=str(Util.Random())), title = str(lm.getStatus())))
+        oc.add(DirectoryObject(key = Callback(GetConversions, junk=str(Util.Random())), title = str(lm.getLatest())))
+        oc.add(DirectoryObject(key = Callback(GetConversions, junk=str(Util.Random())), title = '[Select to refresh]'))
         oc.add(DirectoryObject(key = Callback(CancelConversions), title = 'Cancel Conversions'))
     else:
         oc.add(DirectoryObject(key = Callback(GetConversions, junk=str(Util.Random())), title = 'No active conversions'))
@@ -274,7 +310,37 @@ def GetConversions(junk):
 @route('/video/plextools/cancelconversions')
 def CancelConversions():
     lm.requestExit()
-    return MessageContainer('Canceling', 'Canceling conversion.  This may take a while for ffmpeg to stop.')
+    return MessageContainer('Canceling', 'Canceling conversion.  This may take a while to stop.')
+
+###############################################
+#parses the video object and figures out correct folder name.  Will raise Exception on error.
+#returns (basepath, oldFolderName, None) is the folder name is correct OR
+#returns (basepath, oldFolderName, newFolderName) which can be combined with os.path.join(basepath, newFolderName)
+def getNewVideoFolderName(video):
+    #Log.Debug(XML.StringFromElement(video))
+    #do checks
+    files = video.xpath('Media/Part/@file')
+    if not files or len(files) == 0:
+        raise Exception('No files found')
+    (oldpath, oldfn) = os.path.split(files[0])
+    (basepath, oldFolderName) = os.path.split(oldpath)
+    if len(files) > 0:  #make sure all the files have the same path
+        for f in files:
+            if not samefile(oldpath, os.path.split(f)[0]):
+                raise Exception('Warning. Multiple paths in included files.  Cannot process.')
+    newFolderName = getCleanFilename(String.StripDiacritics(video.get('title'))) 
+    if not newFolderName or len(newFolderName) == 0: raise Exception('Cleaned folder name is empty')
+    try:    #only add in year if it's the correct format
+        match = re.match(r'(\d{4})', video.get('year')) 
+        if match: newFolderName = newFolderName + ' (' + video.get('year')+')'
+    except Exception, e:    
+        #Log.Warn('Ignoring year for %s [%s].', title, e.message)
+        pass
+    newpath = os.path.join(basepath, newFolderName)
+    if samefile(oldpath, newpath):
+        return (basepath, oldFolderName, None)
+    return (basepath, oldFolderName, newFolderName)
+    
 
 ###############################################
 def ParseSRT(data):
@@ -301,12 +367,12 @@ def convert(files):
                 if len(files) == 1:
                     lm.setStatus('Converting ' + file)
                 else:
-                    lm.setStatus('Converting file %s of %s' % (str(i+1), str(len(files))))
+                    lm.setStatus('Converting video %s of %s' % (str(i+1), str(len(files))))
                 output = converter.process(file, True)
-                if len(files) == 0:
+                if len(files) == 1:
                     lm.setStatus('Optimizing ' + file)
                 else:
-                    lm.setStatus('Optimizing file %s of %s' % (str(i+1), str(len(files))))
+                    lm.setStatus('Optimizing video %s of %s' % (str(i+1), str(len(files))))
                 converter.QTFS(output['output'])
                 #Thread.Sleep(5)
                 print 'Conversion of ' + file + ' completed'
@@ -321,5 +387,58 @@ def convert(files):
         lm.setStatus('Done - Error')
     except BaseException:  #catch the SystemExit exception
         Log.Warn('Conversion thread canceled')
+        lm.reset()
+        lm.setStatus('Cancelled')
+
+
+#Converts a file name to something safe.  Tries to be safe for all operating systems
+def getCleanFilename(s):
+    new = ''
+    for c in list(s):
+      if not (c in r'<>:"/\|?*'):
+        if ord(c)>31:
+          new+=c
+    #combine multiple periods into single period and remove beginning/ending periods
+    #'.'.join(new.split('.'))
+    new = re.sub(r'(\.+)', '.', new)
+    new = re.sub(r'(\.*)$', '', new)
+    return new
+
+def samefile(path1, path2):
+    return os.path.normcase(os.path.normpath(path1)) == os.path.normcase(os.path.normpath(path2))
+
+
+def renamemovies(movies):
+    try:
+        lm.setStatus('Initializing %s files' % str(len(movies)))
+        for i,movie in enumerate(movies):
+            if lm.shouldExit():
+                Log.Warn('Renaming Cancelled')
+                break
+            try:
+                #Log.Debug(XML.StringFromElement(movie))
+                title = String.StripDiacritics(movie.get('title')) #DecodeHTMLEntities
+                lm.setStatus('Checking %s of %s' % (str(i+1), str(len(movies))))
+                try:
+                    (basepath, oldFolderName, newFolderName) = getNewVideoFolderName(movie)
+                    if newFolderName == None: continue
+                    os.rename(os.path.join(basepath, oldFolderName),os.path.join(basepath, newFolderName))
+                    Log.Info('Renamed (%s) to (%s) in %s', oldFolderName, newFolderName, basepath)
+                except Exception,e:
+                    Log.Exception('Skipping %s [%s]', title, e.message)
+                    continue
+                #Thread.Sleep(5)
+                print 'Rename of ' + title + ' completed'
+            except Exception, e:
+                Log.Exception('There was an error renaming the file (%s) [%s]', movie.get('title'), e.message)
+        lm.reset()
+        lm.setStatus('Done')
+        Log.Info('Renaming complete')
+    except Exception, e:
+        Log.Exception('There was an error renaming folder [%s]', e.message)
+        lm.reset()
+        lm.setStatus('Done - Error')
+    except BaseException:  #catch the SystemExit exception
+        Log.Warn('Rename thread canceled')
         lm.reset()
         lm.setStatus('Cancelled')

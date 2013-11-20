@@ -45,5 +45,11 @@
         "type": "bool",
         "label": "Delete Original File",
         "default": "false"
+    },
+    {
+        "id": "enable_rename",
+        "type": "bool",
+        "label": "Enable Folder Renaming",
+        "default": "true"
     }
 ]
