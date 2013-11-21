@@ -34,9 +34,22 @@
         "default": ""
     },
     {
+        "id": "abitrate",
+        "type": "enum",
+        "label": "Audio Bitrate (kbs)",
+        "values": ["128", "160", "192", "256", "384", "512", "768"],
+        "default": "512"
+    },
+    {
         "id": "delete",
         "type": "bool",
         "label": "Delete Original File",
         "default": "false"
     },
+    {
+        "id": "enable_rename",
+        "type": "bool",
+        "label": "Enable Folder Renaming",
+        "default": "true"
+    }
 ]
