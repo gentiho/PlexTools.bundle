@@ -39,7 +39,7 @@ class MP4Settings:
         self.copyto = None
         self.moveto = None
         self.vcodec = 'h264'
-        self.acodec = 'aac'
+        self.acodec = Prefs['acodec']
         self.abitrate = int(Prefs['abitrate'])
         self.iOS = True
         self.awl = Prefs['language']

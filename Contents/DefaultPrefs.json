@@ -41,6 +41,13 @@
         "default": "512"
     },
     {
+        "id": "acodec",
+        "type": "enum",
+        "label": "Audio Codec",
+        "values": ["aac", "ac3"],
+        "default": "aac"
+    },
+    {
         "id": "delete",
         "type": "bool",
         "label": "Delete Original File",
