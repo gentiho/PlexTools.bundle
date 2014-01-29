@@ -58,5 +58,18 @@
         "type": "bool",
         "label": "Enable Folder Renaming",
         "default": "true"
+    },
+    {
+        "id": "auto_download",
+        "type": "bool",
+        "label": "Download subtitles in the background",
+        "default": "false"
+    },
+    {
+        "id": "hour_check",
+        "type": "enum",
+        "label": "Frequency to check for new subtitles (in hours)",
+        "values": ["2", "8", "16", "24"],
+        "default": "8"
     }
 ]

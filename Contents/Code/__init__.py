@@ -1,10 +1,11 @@
 # Credits
 # OpenSubtitles: https://github.com/agonzalezro/python-opensubtitles
 # MP4 Automater: https://github.com/mdhiggins/sickbeard_mp4_automator
-###############################################
+##############################################################################################
 import os
 import sys
 import logging, re
+import time
 from opensubtitles import OpenSubtitles
 from mkvtomp4 import MkvtoMp4
 
@@ -23,6 +24,11 @@ SETTINGS = {
     'username'              : Prefs['username'],
     'password'              : Prefs['password']
 }
+
+def IsFFMpegSet():
+    if Prefs['FFMPEG_PATH'] and Prefs['FFPROBE_PATH']:
+        return True
+    return False
 
 class MP4Settings:
     def __init__(self):
@@ -48,7 +54,7 @@ class MP4Settings:
 #main thread.  Calling write() or flush() could make the main thread exit if
 #self.exitNow is set.
 class LogManager(object):
-    def __init__(self, log_level=logging.INFO):        
+    def __init__(self, log_level=logging.INFO):
         self.status = 'init'
         self.exitNow = False
         self.logger = logging.getLogger('STDOUT')
@@ -59,12 +65,12 @@ class LogManager(object):
         self.checkAndExit()
         for line in buf.rstrip().splitlines():
             self.progress.append(line)
-            
+
     def flush(self):
         self.checkAndExit()
         for handler in self.logger.handlers:
             handler.flush()
-            
+
     def getLatest(self):
         if len(self.progress) == 0:
             return ''
@@ -75,7 +81,7 @@ class LogManager(object):
 
     def setStatus(self, s):
         self.status = s
-        
+
     def reset(self):
         self.status = ''
         self.progress[:] = []
@@ -87,50 +93,55 @@ class LogManager(object):
     def shouldExit(self):
         return(self.exitNow)
 
-    def checkAndExit(self): 
+    def checkAndExit(self):
         if self.exitNow:
             raise SystemExit('Canceled')
-    
+
     def isActive(self):
         if plexToolsThread <> None:
             if plexToolsThread.isAlive():
                 return True
         return False
-      
+
 lm = LogManager(logging.DEBUG)
-sys.stdout = lm 
+sys.stdout = lm
 plexToolsThread = None
-        
-###############################################
+
+##############################################################################################
 def Start():
     ObjectContainer.title1 = TITLE
     ObjectContainer.art = R(ART)
-    ObjectContainer.header = 'PlexTools'    
+    ObjectContainer.header = 'PlexTools'
     DirectoryObject.thumb = R(ICON)
     DirectoryObject.art = R(ART)
+    
+def ValidatePrefs():
+    if Prefs['auto_download']:
+        Log.Info('Starting Auto Downloader')
+        Thread.Create(AutoDownload)
 
-###############################################
+##############################################################################################
 @handler('/video/plextools', TITLE, art=ART, thumb=ICON)
 def MainMenu():
     oc = ObjectContainer()
-    
+
     directories = XML.ElementFromURL(SECTIONS % (HOST), cacheTime=0).xpath('//Directory')
     for directory in directories:
         oc.add(
             DirectoryObject(
-                key = Callback(ShowSubMenu, key = SECTION % (directory.get('key')), type=directory.get('type')), 
-                title = directory.get('title'), 
-                thumb = directory.get('thumb'), 
+                key = Callback(ShowSubMenu, key = SECTION % (directory.get('key')), type=directory.get('type')),
+                title = directory.get('title'),
+                thumb = directory.get('thumb'),
                 art = directory.get('art')
             )
         )
-    
+
     oc.add(PrefsObject(title = 'Preferences', thumb = R(ICON_PREFS)))
     if IsFFMpegSet():
         oc.add(DirectoryObject(key = Callback(GetConversions, junk=str(Util.Random())), title = 'MP4 conversions in progress'))
     return oc
 
-###############################################
+##############################################################################################
 @route('/video/plextools/showsubmenu')
 def ShowSubMenu(key, type=None):
     xml = XML.ElementFromURL(HOST + key)
@@ -141,7 +152,7 @@ def ShowSubMenu(key, type=None):
     for element in elements:
         nkey = element.get('key')
         art = element.get('art')
-        thumb = element.get('thumb')        
+        thumb = element.get('thumb')
         if type == 'show':
             if '/children' in nkey:
                 oc.add(PopupDirectoryObject(key = Callback(ShowSubMenu, key=nkey, type=type), title = element.get('title'), thumb = thumb, art = art))
@@ -154,7 +165,7 @@ def ShowSubMenu(key, type=None):
         except: Log.Exception('There was an error adding All Items [%s]', e.message)
     return oc
 
-###############################################
+##############################################################################################
 @route('/video/plextools/showtaskmenu')
 def ShowTaskMenu(key, type):
     xml = XML.ElementFromURL(HOST + key)
@@ -188,49 +199,50 @@ def ShowTaskMenu(key, type):
                     Log.Exception('There was an error adding file (%s) [%s]', file, e.message)
     return oc
 
-###############################################
+##############################################################################################
 @route('/video/plextools/downloadsubtitles')
 def DownloadSubtitles(key, type):
-    data = []
-    oc = ObjectContainer(no_cache=True, title2='Subtitles')
+    subtitles = []    
     video = XML.ElementFromURL(HOST + key).xpath('//Video')[0]
+    root,filename = GetPaths(video)
+    oc = ObjectContainer(no_cache=True, title2='Subtitles')
     if video:
         try:
-            subs = OpenSubtitles(SETTINGS)
-            token = subs.login(SETTINGS['username'], SETTINGS['password'])          
-            full_path = video.xpath('./Media/Part')[0].get('file')
-            root = os.path.dirname(full_path)
-            filename = os.path.basename(full_path).split('.')[:-1]
             
-            path = ''
-            for segment in filename:
-                path = path + segment + '.'
-            filename = path[:-1]
-                
             if type == 'show':
                 title = video.get('grandparentTitle')
                 season = video.get('parentIndex')
                 episode = video.get('index')
-                if title and season and episode:
-                    data = subs.search_subtitles([{'sublanguageid': SETTINGS['language'], 'query': title, 'season': season, 'episode': episode}])
-                    if data == False:
-                        data = subs.search_subtitles([{'sublanguageid': SETTINGS['language'], 'query': video.get('title')}])
+                subtitles.append({'type':'show', 'root':root, 'filename':filename, 'title':title, 'season':season, 'episode':episode})
             else:
-                title = video.get('title')
+                title = video.get('title') + ' (' + video.get('year') + ')'
                 if title:
-                    data = subs.search_subtitles([{'sublanguageid': SETTINGS['language'], 'query': title}])
+                   subtitles.append({'type':'movie', 'root':root, 'filename':filename, 'title':title})
 
-            subs.logout()
-            if data == False:
+            data = SearchSubtitles(subtitles, auto=False)
+            if len(data) == 0:
                 return ObjectContainer(header='No Subtitles Found', message='No subtitles could be found for your selected language')
             else:
                 for item in data:
-                    oc.add(PopupDirectoryObject(key = Callback(WriteSubtitle, url=item['SubDownloadLink'], root=root, filename=filename), title = item['MovieReleaseName'] + ' (' + item['SubDownloadsCnt'] + ' downloads)'))
+                    oc.add(PopupDirectoryObject(key = Callback(GetSubtitleStatus, url=item['SubDownloadLink'], root=root, filename=filename), summary='Filename: ' + filename, title = item['MovieReleaseName'] + ' (' + item['SubDownloadsCnt'] + ' downloads)'))
         except Exception, e:
             Log.Exception('There was an error connecting to Opensubtitles.org (%s)', e.message)
             return ObjectContainer(header='Error', message='There was an error connecting to Opensubtitles.org')
     return oc
 
+##############################################################################################
+@route('/video/plextools/getsubtitlestatus')
+def GetSubtitleStatus(url, root, filename):
+    response = WriteSubtitle(url, root, filename)    
+    if response == 1:
+        UpdateLibrary()
+        message='Subtitle successfully saved'
+    else:
+        message='There was a problem saving your subtitle'
+
+    return ObjectContainer(header='Download Subtitles', message=message)
+
+##############################################################################################
 @route('/video/plextools/renamefolders')
 def RenameFolders(key, type):
     global plexToolsThread
@@ -240,7 +252,7 @@ def RenameFolders(key, type):
     xml = XML.ElementFromURL(HOST + key)
     movies = xml.xpath('//Video')
     if movies and (len(movies) > 0):
-        try:            
+        try:
             plexToolsThread = Thread.Create(renamemovies, movies=movies)
             message = 'Renaming of Folders has started'
         except Exception, e:
@@ -249,10 +261,10 @@ def RenameFolders(key, type):
     else:
         Log.Warn('Rename Folders did not find any movies to rename')
         message = 'Unable to find any folders to rename'
-    
+
     return ObjectContainer(header='Rename Folders', message=message)
 
-###############################################
+##############################################################################################
 @route('/video/plextools/converttomp4', files=list)
 def ConvertToMP4(files):
     global plexToolsThread
@@ -263,7 +275,7 @@ def ConvertToMP4(files):
     if type(files) is str:
         files = [files]
     if files and (len(files) > 0):
-        try:            
+        try:
             plexToolsThread = Thread.Create(convert, files=files)
             message = 'Converting to MP4 has started'
         except Exception, e:
@@ -274,28 +286,7 @@ def ConvertToMP4(files):
 
     return ObjectContainer(header='Convert to MP4', message=message)
 
-###############################################
-@route('/video/plextools/writesubtitle')
-def WriteSubtitle(url, root, filename):
-    message = ''
-    try:
-        if url:
-            gzip = HTTP.Request(url, headers={'Accept-Encoding':'gzip'}).content
-            data = ParseSRT(Archive.GzipDecompress(gzip))
-            srt = os.open(root + '\\' + filename + '.' + SETTINGS['language'] + '.srt', os.O_WRONLY|os.O_CREAT)
-            os.write(srt, data + '\n')
-            os.close(srt)
-            message = 'Subtitle downloaded successfully'
-        else:
-            message = 'Could not find a matching subtitle'
-
-    except Exception, e:
-        Log.Exception('There was an error writing subtitle[%s]', e.message)
-        message = 'There was an error saving the subtitle'
-
-    return ObjectContainer(header='Download Subtitles', message=message)
-    
-###############################################
+##############################################################################################
 @route('/video/plextools/getconversions')
 def GetConversions(junk):
     oc = ObjectContainer(no_cache=True, no_history=True)
@@ -308,13 +299,172 @@ def GetConversions(junk):
         oc.add(PopupDirectoryObject(key = Callback(GetConversions, junk=str(Util.Random())), title = 'No active conversions'))
     return oc
 
-###############################################
+##############################################################################################
 @route('/video/plextools/cancelconversions')
 def CancelConversions():
     lm.requestExit()
     return ObjectContainer(header='Canceling', message='Canceling conversion. This may take a while to stop.')
 
-###############################################
+##############################################################################################
+def AutoDownload():
+    subtitles = []
+    while Prefs['auto_download']:
+        directories = XML.ElementFromURL(SECTIONS % (HOST), cacheTime=0).xpath('//Directory')
+        for directory in directories:
+            
+            ##### Check inside every loop #####
+            if Prefs['auto_download'] == False:
+                return
+            ###################################
+                
+            agent = directory.get('agent')
+            type = directory.get('type')
+            if agent == 'com.plexapp.agents.none':
+                continue
+            else:
+                key = directory.get('key')
+                items = XML.ElementFromURL(HOST + SECTION % (key)).xpath('/*/*')
+                for item in items:
+                    
+                    ##### Check inside every loop #####
+                    if Prefs['auto_download'] == False:
+                        return
+                    ###################################
+                    
+                    video_path = item.get('key')
+                    if type == 'movie':
+                        streams = XML.ElementFromURL(HOST + video_path, cacheTime=0).xpath("//Stream[@format='srt' and @languageCode='" + SETTINGS['language'] + "']")
+                        if len(streams) == 0:
+                            root,filename = GetPaths(item)
+                            title = item.get('title') + ' (' + item.get('year') + ')'
+                            subtitles.append({'type':'movie', 'root':root, 'filename':filename, 'title':title})
+                    else:
+                        seasons = XML.ElementFromURL(HOST + video_path, cacheTime=0).xpath('//Directory')
+                        for season in seasons:
+                            
+                            ##### Check inside every loop #####
+                            if Prefs['auto_download'] == False:
+                                return
+                            ###################################
+                            
+                            season_key = season.get('key')
+                            episodes = XML.ElementFromURL(HOST + season_key, cacheTime=0).xpath('//Video')
+                            for episode in episodes:                                
+                                
+                                ##### Check inside every loop #####
+                                if Prefs['auto_download'] == False:
+                                    return
+                                ###################################
+                                    
+                                episode_key = episode.get('key')
+                                video = XML.ElementFromURL(HOST + episode_key, cacheTime=0)
+                                streams = video.xpath("//Stream[@format='srt' and @languageCode='" + Prefs['language'] + "']")
+                                if len(streams) == 0:
+                                    data = video.xpath('//Video')[0]
+                                    root,filename = GetPaths(data)
+                                    title = data.get('grandparentTitle')
+                                    subtitles.append({'type':'show', 'root':root, 'filename':filename, 'title':title, 'season':data.get('parentIndex'), 'episode':data.get('index')})
+        SearchSubtitles(subtitles, auto=True)
+        subtitles = []
+        frequency = int(Prefs['hour_check']) 
+        sleep_time = frequency * 60 * 60
+        Log.Info('Will check for new subtitles again in ' + Prefs['hour_check'] + ' hours')
+        while sleep_time > 0:
+            sleep_time = sleep_time - 3600
+            time.sleep(3600)
+    return
+
+def SearchSubtitles(subtitles, auto=False):
+    try:
+        sortedList = []
+        update = False
+        subs = OpenSubtitles(SETTINGS)
+        token = subs.login(SETTINGS['username'], SETTINGS['password'])
+        for item in subtitles:
+            data = cleanedList = sortedList = []
+            
+            ids = subs.search_movies_on_imdb(item['title'])
+            if ids:
+                id = ids['data'][0]['id']
+                if item['type'] == 'show':                
+                    data = subs.search_subtitles([{'sublanguageid': SETTINGS['language'], 'imdbid': id, 'season': item['season'], 'episode': item['episode']}])                
+                else:                    
+                    data = subs.search_subtitles([{'sublanguageid': SETTINGS['language'], 'imdbid': id}])
+                
+            #A fallback search when we aren't running the AutoDownloader
+            if data == False and auto == False:
+                data = subs.search_subtitles([{'sublanguageid': SETTINGS['language'], 'query': item['title']}])
+            
+            if data != False:
+                for video in data:
+                    if video['SubFormat'] == 'srt':
+                        cleanedList.append(video)
+                sortedList = sorted(cleanedList, key=lambda k: int(k['SubDownloadsCnt']), reverse=True)
+                if auto == True:
+                    update = True
+                    response = WriteSubtitle(sortedList[0]['SubDownloadLink'], item['root'], item['filename'])
+
+            else:
+                Log.Info('There are no subtites for ' + item['filename'] + ' at this time')
+        subs.logout()
+
+        if update:
+            UpdateLibrary()
+    except:
+        Log.Exception('Error connecting to Opensubtitles.org')
+
+    return sortedList
+
+def WriteSubtitle(url, root, filename):
+    message = 0
+    name = root + '\\' + filename + '.' + SETTINGS['language'] + '.srt'
+    try:
+        if url:
+            gzip = HTTP.Request(url, headers={'Accept-Encoding':'gzip'}).content
+            data = ParseSRT(Archive.GzipDecompress(gzip))
+            srt = os.open(name, os.O_WRONLY|os.O_CREAT)
+            os.write(srt, data + '\n')
+            os.close(srt)
+            Log.Info(name + ' successfully saved')
+            message = 1
+    except:
+        Log.Exception('There was an error writing subtitle [%s]', name)
+        message = 2
+
+    return message
+
+def GetPaths(video):
+    full_path = String.Unquote(video.xpath('./Media/Part')[0].get('file'))
+    root = os.path.dirname(full_path)
+    filename = os.path.basename(full_path).split('.')[:-1]
+
+    path = ''
+    for segment in filename:
+        path = path + segment + '.'
+    filename = path[:-1]
+    return root,filename
+
+def ParseSRT(data):
+    lines = []
+    if data:
+        for row in data.split('\r\n'):
+            if row == '\n':
+                line = row
+            else:
+                line = row + '\n'
+            lines.append(line)
+    return ''.join(lines).strip('\r\n')
+
+def UpdateLibrary():
+    sections = XML.ElementFromURL(SECTIONS % (HOST), cacheTime=0).xpath('//Directory')
+    for section in sections:
+        key = section.get('key')
+        Log.Info('Updating section #' + key)
+        data = HTTP.Request(SECTIONS % (HOST) + key + '/refresh', cacheTime=0).content
+
+    return data
+
+##############################################################################################
 #parses the video object and figures out correct folder name.  Will raise Exception on error.
 #returns (basepath, oldFolderName, None) is the folder name is correct OR
 #returns (basepath, oldFolderName, newFolderName) which can be combined with os.path.join(basepath, newFolderName)
@@ -329,35 +479,18 @@ def getNewVideoFolderName(video):
         for f in files:
             if not samefile(oldpath, os.path.split(f)[0]):
                 raise Exception('Warning. Multiple paths in included files.  Cannot process.')
-    newFolderName = getCleanFilename(String.StripDiacritics(video.get('title'))) 
+    newFolderName = getCleanFilename(String.StripDiacritics(video.get('title')))
     if not newFolderName or len(newFolderName) == 0: raise Exception('Cleaned folder name is empty')
     try:    #only add in year if it's the correct format
-        match = re.match(r'(\d{4})', video.get('year')) 
+        match = re.match(r'(\d{4})', video.get('year'))
         if match: newFolderName = newFolderName + ' (' + video.get('year')+')'
-    except Exception, e:    
+    except Exception, e:
         pass
     newpath = os.path.join(basepath, newFolderName)
     if samefile(oldpath, newpath):
         return (basepath, oldFolderName, None)
-    return (basepath, oldFolderName, newFolderName) 
+    return (basepath, oldFolderName, newFolderName)
 
-###############################################
-def IsFFMpegSet():
-    if Prefs['FFMPEG_PATH'] and Prefs['FFPROBE_PATH']:
-        return True
-    return False
-    
-def ParseSRT(data):
-    lines = []
-    if data:
-        for row in data.split('\r\n'):
-            if row == '\n':
-                line = row
-            else:
-                line = row + '\n'
-            lines.append(line)
-    return ''.join(lines).strip('\r\n')
-    
 def convert(files):
     try:
         lm.setStatus('Initializing %s files' % str(len(files)))
