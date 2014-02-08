@@ -17,7 +17,12 @@ Installation Instructions
     * `OpenSubtitle Language`: Language preference for subtitles (defaults to English)
     * `FFMPEG_PATH`: Path to FFMPEG (required)
     * `FFPROBE_PATH`: Path to FFProbe (required)
-    * `Delete Original File`: Delete original video (defaults to false)
+    * `Audio Bitrate`: The bitrate for the converted video (in kbs)
+    * `Audio Codec`: The audio codec used for the converted video
+    * `Delete Original File`: Delete original video (defaults to false)    
+    * `Enable Folder Renaming`: Enables file renaming
+    * `Download subtitles in the background`: Enables the Auto Download feature
+    * `Frequency to check for new subtitles`: The frequency in hours to check for new subtitles
 
 Credits
 -------------------------
