@@ -17,6 +17,8 @@ ICON_PREFS = 'icon-prefs.png'
 HOST = 'http://localhost:32400'
 SECTION = '/library/sections/%s/all/'
 SECTIONS = '%s/library/sections/'
+TMDB_URL = 'https://api.tmdb.org/3/movie/%s?api_key=a3dc111e66105f6387e99393813ae4d5&append_to_response=releases,credits&language=%s'
+TVDB_URL = 'http://thetvdb.com/api/D4DDDAEFAD083E6F/series/%s'
 SETTINGS = {
     'opensubtitles_server'  : 'http://api.opensubtitles.org/xml-rpc',
     'user_agent'            : 'plexapp.com v9.0',
@@ -114,7 +116,7 @@ def Start():
     ObjectContainer.header = 'PlexTools'
     DirectoryObject.thumb = R(ICON)
     DirectoryObject.art = R(ART)
-    
+
 def ValidatePrefs():
     if Prefs['auto_download']:
         Log.Info('Starting Auto Downloader')
@@ -202,22 +204,17 @@ def ShowTaskMenu(key, type):
 ##############################################################################################
 @route('/video/plextools/downloadsubtitles')
 def DownloadSubtitles(key, type):
-    subtitles = []    
+    subtitles = []
     video = XML.ElementFromURL(HOST + key).xpath('//Video')[0]
     root,filename = GetPaths(video)
     oc = ObjectContainer(no_cache=True, title2='Subtitles')
     if video:
         try:
-            
-            if type == 'show':
-                title = video.get('grandparentTitle')
-                season = video.get('parentIndex')
-                episode = video.get('index')
-                subtitles.append({'type':'show', 'root':root, 'filename':filename, 'title':title, 'season':season, 'episode':episode})
-            else:
-                title = video.get('title') + ' (' + video.get('year') + ')'
-                if title:
-                   subtitles.append({'type':'movie', 'root':root, 'filename':filename, 'title':title})
+            type = video.get('type')
+            guid = GetIMDBID(video.get('guid'))
+            season = video.get('parentIndex')
+            episode = video.get('index')
+            subtitles.append({'type':type, 'root':root, 'filename':filename, 'season':season, 'episode':episode, 'id':guid})
 
             data = SearchSubtitles(subtitles, auto=False)
             if len(data) == 0:
@@ -233,7 +230,7 @@ def DownloadSubtitles(key, type):
 ##############################################################################################
 @route('/video/plextools/getsubtitlestatus')
 def GetSubtitleStatus(url, root, filename):
-    response = WriteSubtitle(url, root, filename)    
+    response = WriteSubtitle(url, root, filename)
     if response == 1:
         UpdateLibrary()
         message='Subtitle successfully saved'
@@ -311,12 +308,12 @@ def AutoDownload():
     while Prefs['auto_download']:
         directories = XML.ElementFromURL(SECTIONS % (HOST), cacheTime=0).xpath('//Directory')
         for directory in directories:
-            
+
             ##### Check inside every loop #####
             if Prefs['auto_download'] == False:
                 return
             ###################################
-                
+
             agent = directory.get('agent')
             type = directory.get('type')
             if agent == 'com.plexapp.agents.none':
@@ -325,48 +322,48 @@ def AutoDownload():
                 key = directory.get('key')
                 items = XML.ElementFromURL(HOST + SECTION % (key)).xpath('/*/*')
                 for item in items:
-                    
                     ##### Check inside every loop #####
                     if Prefs['auto_download'] == False:
                         return
                     ###################################
-                    
+
                     video_path = item.get('key')
                     if type == 'movie':
-                        streams = XML.ElementFromURL(HOST + video_path, cacheTime=0).xpath("//Stream[@format='srt' and @languageCode='" + SETTINGS['language'] + "']")
+                        video_data = XML.ElementFromURL(HOST + video_path, cacheTime=0)
+                        streams = video_data.xpath("//Stream[@format='srt' and @languageCode='" + SETTINGS['language'] + "']")
                         if len(streams) == 0:
                             root,filename = GetPaths(item)
-                            title = item.get('title') + ' (' + item.get('year') + ')'
-                            subtitles.append({'type':'movie', 'root':root, 'filename':filename, 'title':title})
+                            guid = GetIMDBID(video_data.xpath('//Video')[0].get('guid'))
+                            subtitles.append({'type':'movie', 'root':root, 'filename':filename, 'id':guid})
                     else:
                         seasons = XML.ElementFromURL(HOST + video_path, cacheTime=0).xpath('//Directory')
                         for season in seasons:
-                            
+
                             ##### Check inside every loop #####
                             if Prefs['auto_download'] == False:
                                 return
                             ###################################
-                            
+
                             season_key = season.get('key')
                             episodes = XML.ElementFromURL(HOST + season_key, cacheTime=0).xpath('//Video')
-                            for episode in episodes:                                
-                                
+                            for episode in episodes:
+
                                 ##### Check inside every loop #####
                                 if Prefs['auto_download'] == False:
                                     return
                                 ###################################
-                                    
+
                                 episode_key = episode.get('key')
                                 video = XML.ElementFromURL(HOST + episode_key, cacheTime=0)
                                 streams = video.xpath("//Stream[@format='srt' and @languageCode='" + Prefs['language'] + "']")
                                 if len(streams) == 0:
                                     data = video.xpath('//Video')[0]
                                     root,filename = GetPaths(data)
-                                    title = data.get('grandparentTitle')
-                                    subtitles.append({'type':'show', 'root':root, 'filename':filename, 'title':title, 'season':data.get('parentIndex'), 'episode':data.get('index')})
+                                    guid = GetIMDBID(data.get('guid'))
+                                    subtitles.append({'type':'episode', 'root':root, 'filename':filename, 'season':data.get('parentIndex'), 'episode':data.get('index'), 'id':guid})
         SearchSubtitles(subtitles, auto=True)
         subtitles = []
-        frequency = int(Prefs['hour_check']) 
+        frequency = int(Prefs['hour_check'])
         sleep_time = frequency * 60 * 60
         Log.Info('Will check for new subtitles again in ' + Prefs['hour_check'] + ' hours')
         while sleep_time > 0:
@@ -382,19 +379,12 @@ def SearchSubtitles(subtitles, auto=False):
         token = subs.login(SETTINGS['username'], SETTINGS['password'])
         for item in subtitles:
             data = cleanedList = sortedList = []
-            
-            ids = subs.search_movies_on_imdb(item['title'])
-            if ids:
-                id = ids['data'][0]['id']
-                if item['type'] == 'show':                
-                    data = subs.search_subtitles([{'sublanguageid': SETTINGS['language'], 'imdbid': id, 'season': item['season'], 'episode': item['episode']}])                
-                else:                    
-                    data = subs.search_subtitles([{'sublanguageid': SETTINGS['language'], 'imdbid': id}])
-                
-            #A fallback search when we aren't running the AutoDownloader
-            if data == False and auto == False:
-                data = subs.search_subtitles([{'sublanguageid': SETTINGS['language'], 'query': item['title']}])
-            
+
+            if item['type'] == 'episode':
+                data = subs.search_subtitles([{'sublanguageid': SETTINGS['language'], 'imdbid':  item['id'], 'season': item['season'], 'episode': item['episode']}])
+            else:
+                data = subs.search_subtitles([{'sublanguageid': SETTINGS['language'], 'imdbid':  item['id']}])
+
             if data != False:
                 for video in data:
                     if video['SubFormat'] == 'srt':
@@ -417,7 +407,7 @@ def SearchSubtitles(subtitles, auto=False):
 
 def WriteSubtitle(url, root, filename):
     message = 0
-    name = root + '\\' + filename + '.' + SETTINGS['language'] + '.srt'
+    name = os.path.join(root, filename + '.' + SETTINGS['language'] + '.srt')
     try:
         if url:
             gzip = HTTP.Request(url, headers={'Accept-Encoding':'gzip'}).content
@@ -463,6 +453,22 @@ def UpdateLibrary():
         data = HTTP.Request(SECTIONS % (HOST) + key + '/refresh', cacheTime=0).content
 
     return data
+
+def GetIMDBID(node):
+    id = 0
+    if node:
+        if node.startswith('com.plexapp.agents.themoviedb://'):
+            guid = node.split('com.plexapp.agents.themoviedb://')[1].split('?')[0]
+            id = JSON.ObjectFromURL(TMDB_URL % (guid, 'en'))['imdb_id'][2:]
+
+        elif node.startswith('com.plexapp.agents.thetvdb://'):
+            guid = node.split('com.plexapp.agents.thetvdb://')[1].split('?')[0].split('/')[0]
+            id = XML.ElementFromURL(TVDB_URL % (guid)).xpath('//IMDB_ID')[0].text[2:]
+
+        elif node.startswith('com.plexapp.agents.imdb://'):
+            id = node.split('com.plexapp.agents.imdb://')[1].split('?')[0][2:]
+
+    return id
 
 ##############################################################################################
 #parses the video object and figures out correct folder name.  Will raise Exception on error.
