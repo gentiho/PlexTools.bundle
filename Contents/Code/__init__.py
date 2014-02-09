@@ -6,6 +6,7 @@ import os
 import sys
 import logging, re
 import time
+import urllib
 from opensubtitles import OpenSubtitles
 from mkvtomp4 import MkvtoMp4
 
@@ -196,7 +197,8 @@ def ShowTaskMenu(key, type):
                 try:
                     (path, fn) = os.path.split(file)
                     dn = fn if len(fn) < 43 else fn[:20]+"..."+fn[len(fn)-20:]
-                    oc.add(PopupDirectoryObject(key = Callback(ConvertToMP4, files=[file]), title = 'Convert to MP4: %s' % dn))
+                    filtered_string = urllib.unquote(dn).decode('utf8')
+                    oc.add(PopupDirectoryObject(key = Callback(ConvertToMP4, files=[file]), title = 'Convert to MP4: %s' % filtered_string))
                 except Exception, e:
                     Log.Exception('There was an error adding file (%s) [%s]', file, e.message)
     return oc
